@@ -19,6 +19,9 @@ class GameViewModel : ViewModel() {
     var score by mutableStateOf(0)
     var availableBlocks by mutableStateOf(listOf<BlockShape>())
     
+    // Sound Manager
+    var soundManager: SoundManager? = null
+
     // Multiplayer state
     var isMultiplayer by mutableStateOf(false)
     var opponentScore by mutableStateOf(0)
@@ -83,6 +86,7 @@ class GameViewModel : ViewModel() {
             selectedBlockIndex = index
             isPlacingBlock = true
             cursorPosition = Position(gridSize / 2, gridSize / 2)
+            soundManager?.playSelectSound()
         }
     }
 
@@ -103,6 +107,7 @@ class GameViewModel : ViewModel() {
         
         if (canPlace(shape, cursorPosition)) {
             placeBlock(shape, cursorPosition)
+            soundManager?.playPlaceSound()
             
             val newAvailable = availableBlocks.toMutableList()
             newAvailable.removeAt(selectedBlockIndex)
@@ -186,6 +191,7 @@ class GameViewModel : ViewModel() {
             }
             
             grid = newGrid
+            soundManager?.playClearSound()
             
             val totalCleared = rowsToClear.size + colsToClear.size
             score += when (totalCleared) {
@@ -200,5 +206,6 @@ class GameViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         multiplayerManager?.stop()
+        soundManager?.release()
     }
 }
