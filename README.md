@@ -1,4 +1,4 @@
-# Block Blast
+# Block Blast.
 
 A classic block puzzle game built with Modern Android development practices. This project is uniquely designed to run on both **Android Mobile** and **Android TV** using a single codebase with Jetpack Compose.
 

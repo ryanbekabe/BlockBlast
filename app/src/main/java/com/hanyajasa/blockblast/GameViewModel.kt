@@ -19,6 +19,12 @@ class GameViewModel : ViewModel() {
     var score by mutableStateOf(0)
     var availableBlocks by mutableStateOf(listOf<BlockShape>())
     
+    // Multiplayer state
+    var isMultiplayer by mutableStateOf(false)
+    var opponentScore by mutableStateOf(0)
+    var opponentGrid by mutableStateOf(Array(gridSize) { LongArray(gridSize) { 0L } })
+    var multiplayerManager: MultiplayerManager? = null
+
     // UI State
     var selectedBlockIndex by mutableStateOf(-1) 
     var cursorPosition by mutableStateOf(Position(4, 4))
@@ -40,6 +46,32 @@ class GameViewModel : ViewModel() {
 
     init {
         generateNewBlocks()
+        setupMultiplayer()
+    }
+
+    private fun setupMultiplayer() {
+        multiplayerManager = MultiplayerManager { event ->
+            when (event) {
+                is GameEvent.ScoreUpdate -> {
+                    opponentScore = event.score
+                }
+                is GameEvent.OpponentGridUpdate -> {
+                    val newGrid = Array(gridSize) { r -> LongArray(gridSize) { c -> event.grid[r][c] } }
+                    opponentGrid = newGrid
+                }
+                else -> {}
+            }
+        }
+    }
+
+    fun startHost() {
+        multiplayerManager?.startHosting()
+        isMultiplayer = true
+    }
+
+    fun joinGame(ip: String) {
+        multiplayerManager?.joinGame(ip)
+        isMultiplayer = true
     }
 
     private fun generateNewBlocks() {
@@ -84,9 +116,21 @@ class GameViewModel : ViewModel() {
             if (availableBlocks.isEmpty()) {
                 generateNewBlocks()
             }
+
+            // Sync with opponent
+            if (isMultiplayer) {
+                syncState()
+            }
+            
             return true
         }
         return false
+    }
+
+    private fun syncState() {
+        multiplayerManager?.sendEvent(GameEvent.ScoreUpdate("Me", score))
+        val gridList = grid.map { it.toList() }
+        multiplayerManager?.sendEvent(GameEvent.OpponentGridUpdate(gridList))
     }
 
     fun canPlace(shape: BlockShape, pos: Position): Boolean {
@@ -143,10 +187,6 @@ class GameViewModel : ViewModel() {
             
             grid = newGrid
             
-            // Scoring logic:
-            // 1 line = 100 pts
-            // 2 lines = 300 pts (Bonus)
-            // 3 lines = 600 pts (Combo!)
             val totalCleared = rowsToClear.size + colsToClear.size
             score += when (totalCleared) {
                 1 -> 100
@@ -155,5 +195,10 @@ class GameViewModel : ViewModel() {
                 else -> totalCleared * 250
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        multiplayerManager?.stop()
     }
 }

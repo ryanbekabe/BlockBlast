@@ -11,7 +11,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,8 +32,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             BlockBlastTheme {
-                // Using Modifier.background to set the container color 
-                // as SurfaceDefaults.colors is causing an unresolved reference in this version.
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
@@ -108,12 +107,10 @@ fun GameScreen(viewModel: GameViewModel) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
     
-    // Adaptive cell size based on screen width
     val screenWidth = configuration.screenWidthDp.dp
-    val cellSize = if (isLandscape) 40.dp else (screenWidth - 48.dp) / 8
+    val cellSize = if (isLandscape) 36.dp else (screenWidth - 48.dp) / 8
 
     if (isLandscape) {
-        // TV / Landscape Layout
         Row(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -125,34 +122,102 @@ fun GameScreen(viewModel: GameViewModel) {
             ) {
                 Text(text = "Block Blast", style = MaterialTheme.typography.displaySmall)
                 Text(text = "Score: ${viewModel.score}", style = MaterialTheme.typography.headlineMedium)
-                Spacer(modifier = Modifier.height(24.dp))
+                
+                if (viewModel.isMultiplayer) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Opponent: ${viewModel.opponentScore}", color = Color.Red, style = MaterialTheme.typography.headlineSmall)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
                 BlockPool(viewModel)
                 ControlHints(viewModel)
+                MultiplayerControls(viewModel)
             }
+
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                GameGrid(viewModel, cellSize)
+                GameGrid(viewModel.grid, viewModel, cellSize)
+            }
+
+            if (viewModel.isMultiplayer) {
+                Box(modifier = Modifier.weight(0.7f), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Opponent's Grid", style = MaterialTheme.typography.bodySmall)
+                        GameGrid(viewModel.opponentGrid, viewModel, cellSize * 0.6f, isOpponent = true)
+                    }
+                }
             }
         }
     } else {
-        // Mobile / Portrait Layout
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(text = "Block Blast", style = MaterialTheme.typography.headlineMedium)
-                Text(text = "Score: ${viewModel.score}", style = MaterialTheme.typography.headlineSmall)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text(text = "Block Blast", style = MaterialTheme.typography.headlineMedium)
+                    Text(text = "Score: ${viewModel.score}", style = MaterialTheme.typography.headlineSmall)
+                }
+                if (viewModel.isMultiplayer) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = "Opponent", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "${viewModel.opponentScore}", color = Color.Red, style = MaterialTheme.typography.headlineSmall)
+                    }
+                }
             }
             
-            GameGrid(viewModel, cellSize)
+            GameGrid(viewModel.grid, viewModel, cellSize)
             
+            if (viewModel.isMultiplayer) {
+                Text("Opponent's Grid", style = MaterialTheme.typography.labelSmall)
+                GameGrid(viewModel.opponentGrid, viewModel, cellSize * 0.4f, isOpponent = true)
+            }
+
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 BlockPool(viewModel)
                 ControlHints(viewModel)
+                MultiplayerControls(viewModel)
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+    }
+}
+
+@Composable
+fun MultiplayerControls(viewModel: GameViewModel) {
+    var showJoinDialog by remember { mutableStateOf(false) }
+    var ipInput by remember { mutableStateOf("192.168.1. ") }
+
+    if (!viewModel.isMultiplayer) {
+        Row(modifier = Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { viewModel.startHost() }) {
+                Text("Host Game")
+            }
+            Button(onClick = { showJoinDialog = true }) {
+                Text("Join Game")
+            }
+        }
+    }
+
+    if (showJoinDialog) {
+        AlertDialog(
+            onDismissRequest = { showJoinDialog = false },
+            title = { Text("Join Local Game") },
+            text = {
+                Column {
+                    Text("Enter Host IP Address:")
+                    // Note: In a real app, use a proper TextField. 
+                    // For now, simplified for the example.
+                    Text(ipInput, modifier = Modifier.background(Color.DarkGray).padding(8.dp))
+                }
+            },
+            confirmButton = {
+                Button(onClick = { 
+                    viewModel.joinGame(ipInput.trim())
+                    showJoinDialog = false 
+                }) { Text("Connect") }
+            }
+        )
     }
 }
 
@@ -164,26 +229,26 @@ fun ControlHints(viewModel: GameViewModel) {
         Button(onClick = { viewModel.cancelSelection() }, modifier = Modifier.padding(top = 8.dp)) {
             Text("Cancel")
         }
-    } else {
+    } else if (!viewModel.isMultiplayer) {
         Text(text = "Pick a block below", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     }
 }
 
 @Composable
-fun GameGrid(viewModel: GameViewModel, cellSize: Dp) {
+fun GameGrid(grid: Array<LongArray>, viewModel: GameViewModel, cellSize: Dp, isOpponent: Boolean = false) {
     Column(
         modifier = Modifier
             .background(Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
             .padding(4.dp)
-            .border(2.dp, Color.DarkGray, RoundedCornerShape(8.dp))
+            .border(2.dp, if (isOpponent) Color.Red else Color.DarkGray, RoundedCornerShape(8.dp))
     ) {
         for (r in 0 until viewModel.gridSize) {
             Row {
                 for (c in 0 until viewModel.gridSize) {
-                    val cellColor = viewModel.grid[r][c]
+                    val cellColor = grid[r][c]
                     
                     var ghostColor: Color? = null
-                    if (viewModel.isPlacingBlock && viewModel.selectedBlockIndex != -1) {
+                    if (!isOpponent && viewModel.isPlacingBlock && viewModel.selectedBlockIndex != -1) {
                         val shape = viewModel.availableBlocks[viewModel.selectedBlockIndex]
                         val isPartOfGhost = shape.points.any { 
                             viewModel.cursorPosition.row + it.row == r && 
@@ -194,13 +259,13 @@ fun GameGrid(viewModel: GameViewModel, cellSize: Dp) {
                         }
                     }
 
-                    val isCursor = viewModel.isPlacingBlock && viewModel.cursorPosition.row == r && viewModel.cursorPosition.col == c
+                    val isCursor = !isOpponent && viewModel.isPlacingBlock && viewModel.cursorPosition.row == r && viewModel.cursorPosition.col == c
                     
                     Box(
                         modifier = Modifier
                             .size(cellSize)
-                            .padding(1.5.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .padding(if (cellSize > 20.dp) 1.5.dp else 0.5.dp)
+                            .clip(RoundedCornerShape(if (cellSize > 20.dp) 4.dp else 1.dp))
                             .background(
                                 when {
                                     cellColor != 0L -> Color(cellColor)
@@ -213,12 +278,14 @@ fun GameGrid(viewModel: GameViewModel, cellSize: Dp) {
                                 color = if (isCursor) Color.White else Color.Transparent,
                                 shape = RoundedCornerShape(4.dp)
                             )
-                            .clickable {
-                                if (viewModel.isPlacingBlock) {
-                                    viewModel.cursorPosition = Position(r, c)
-                                    viewModel.tryPlaceBlock()
-                                }
-                            }
+                            .then(
+                                if (!isOpponent) Modifier.clickable {
+                                    if (viewModel.isPlacingBlock) {
+                                        viewModel.cursorPosition = Position(r, c)
+                                        viewModel.tryPlaceBlock()
+                                    }
+                                } else Modifier
+                            )
                     )
                 }
             }
@@ -228,62 +295,46 @@ fun GameGrid(viewModel: GameViewModel, cellSize: Dp) {
 
 @Composable
 fun BlockPool(viewModel: GameViewModel) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        viewModel.availableBlocks.forEachIndexed { index, shape ->
-            val isSelected = !viewModel.isPlacingBlock && viewModel.selectedBlockIndex == index
-            val isBeingPlaced = viewModel.isPlacingBlock && viewModel.selectedBlockIndex == index
-            
+    Row(
+        modifier = Modifier.padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        viewModel.availableBlocks.forEachIndexed { index, block ->
+            val isSelected = viewModel.selectedBlockIndex == index
             Box(
                 modifier = Modifier
-                    .size(90.dp)
-                    .background(
-                        if (isSelected) Color.White.copy(alpha = 0.1f) else Color.Transparent,
-                        RoundedCornerShape(12.dp)
-                    )
                     .border(
                         width = if (isSelected) 3.dp else 1.dp,
-                        color = if (isSelected) Color(0xFF00E5FF) else if (isBeingPlaced) Color.Yellow else Color(0xFF444444),
-                        shape = RoundedCornerShape(12.dp)
+                        color = if (isSelected) Color.White else Color.Transparent,
+                        shape = RoundedCornerShape(8.dp)
                     )
-                    .clickable {
-                        if (!viewModel.isPlacingBlock) {
-                            viewModel.selectBlock(index)
-                        } else if (viewModel.selectedBlockIndex == index) {
-                            viewModel.cancelSelection()
-                        }
+                    .padding(8.dp)
+                    .clickable { 
+                        viewModel.selectBlock(index)
                     }
-                    .padding(4.dp),
-                contentAlignment = Alignment.Center
             ) {
-                MiniBlockPreview(shape)
+                SmallBlockPreview(block)
             }
         }
     }
 }
 
 @Composable
-fun MiniBlockPreview(shape: BlockShape) {
-    val cellSize = 12.dp
-    if (shape.points.isEmpty()) return
-    
-    val minR = shape.points.minOf { it.row }
-    val maxR = shape.points.maxOf { it.row }
-    val minC = shape.points.minOf { it.col }
-    val maxC = shape.points.maxOf { it.col }
-    
-    val width = (maxC - minC + 1) * 12
-    val height = (maxR - minR + 1) * 12
-
-    Box(modifier = Modifier.size(width.dp, height.dp)) {
-        shape.points.forEach { p ->
-            Box(
-                modifier = Modifier
-                    .offset(x = ((p.col - minC) * 12).dp, y = ((p.row - minR) * 12).dp)
-                    .size(cellSize)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(Color(shape.color))
-                    .border(0.5.dp, Color.Black.copy(alpha = 0.3f), RoundedCornerShape(3.dp))
-            )
+fun SmallBlockPreview(block: BlockShape) {
+    val previewCellSize = 12.dp
+    Column {
+        for (r in 0 until 5) {
+            Row {
+                for (c in 0 until 5) {
+                    val isPart = block.points.any { it.row == r && it.col == c }
+                    Box(
+                        modifier = Modifier
+                            .size(previewCellSize)
+                            .padding(1.dp)
+                            .background(if (isPart) Color(block.color) else Color.Transparent, RoundedCornerShape(2.dp))
+                    )
+                }
+            }
         }
     }
 }
